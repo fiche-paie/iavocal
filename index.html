@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Assistant Vocal OpenAI</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f2f5;
+        }
+        .container {j
+            text-align: center;
+            padding: 2rem;j
+            background: white;
+            border-radius: 1rem;j
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        button {
+            padding: 1rem 2rem;
+            font-size: 1.2rem;
+            background-color: #10a37f;
+            color: white;
+            border: none;
+            border-radius: 0.5rem;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        button:hover {
+            background-color: #0d8a6a;
+        }
+        button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        .status {
+            margin-top: 1.5rem;
+            font-size: 1.1rem;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <button id="startBtn">🎤 Activer le Micro</button>
+        <div id="status" class="status">Prêt à écouter</div>
+    </div>
+
+    <script>
+        // ================= CONFIGURATION =================
+        // Remplacez cette valeur par votre clé API OpenAI
+        const OPENAI_API_KEY = "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";
+        
+        const SYSTEM_PROMPT = `
+        Tu es un assistant vocal qui répond uniquement par voix. 
+        Tu vends un appareil photo Nikon D750 sur Le Bon Coin.
+        Prix: 500€ (négociable à 450€ minimum).
+        État: excellent, 15 000 déclenchements.
+        Accessoires: 2 batteries, chargeur, sac.
+        Sois bref, courtois et naturel dans tes réponses vocales.
+        `;
+        // ================================================
+
+        // Éléments UI
+        const startBtn = document.getElementById('startBtn');
+        const statusEl = document.getElementById('status');
+
+        // Vérification compatibilité
+        if (!('webkitSpeechRecognition' in window)) {
+            statusEl.textContent = "Navigateur non supporté (utilisez Chrome/Edge)";
+            startBtn.disabled = true;
+        }
+
+        // Initialisation reconnaissance vocale
+        const recognition = new (window.SpeechRecognition || window.webkitSpeechRecognition)();
+        recognition.continuous = true;
+        recognition.interimResults = false;
+        recognition.lang = 'fr-FR';
+
+        // Gestion de l'état
+        let isListening = false;
+
+        // Démarrer l'écoute
+        function startListening() {
+            try {
+                recognition.start();
+                isListening = true;
+                startBtn.disabled = true;
+                statusEl.textContent = "Écoute en cours... Parlez maintenant";
+            } catch (error) {
+                statusEl.textContent = "Erreur: " + error.message;
+            }
+        }
+
+        // Arrêter l'écoute
+        function stopListening() {
+            recognition.stop();
+            isListening = false;
+            startBtn.disabled = false;
+            statusEl.textContent = "Prêt à écouter";
+        }
+
+        // Envoyer à l'API OpenAI
+        async function queryOpenAI(userInput) {
+            try {
+                statusEl.textContent = "L'IA réfléchit...";
+                
+                const response = await fetch('https://api.openai.com/v1/chat/completions', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${OPENAI_API_KEY}`
+                    },
+                    body: JSON.stringify({
+                        model: "gpt-3.5-turbo",
+                        messages: [
+                            { role: "system", content: SYSTEM_PROMPT },
+                            { role: "user", content: userInput }
+                        ],
+                        temperature: 0.7,
+                        max_tokens: 100
+                    })
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Erreur HTTP: ${response.status}`);
+                }
+
+                const data = await response.json();
+                return data.choices[0].message.content;
+
+            } catch (error) {
+                console.error("Erreur OpenAI:", error);
+                return "Désolé, une erreur technique s'est produite. Veuillez réessayer.";
+            }
+        }
+
+        // Synthèse vocale
+        function speak(text) {
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'fr-FR';
+            utterance.rate = 1.0;
+            window.speechSynthesis.speak(utterance);
+            
+            utterance.onend = () => {
+                if (isListening) {
+                    statusEl.textContent = "Écoute en cours... Parlez maintenant";
+                }
+            };
+        }
+
+        // Événements
+        startBtn.addEventListener('click', startListening);
+
+        recognition.onresult = async (event) => {
+            const userInput = event.results[event.results.length - 1][0].transcript;
+            
+            // Obtenir la réponse de l'IA
+            const aiResponse = await queryOpenAI(userInput);
+            
+            // Lire la réponse
+            speak(aiResponse);
+        };
+
+        recognition.onerror = (event) => {
+            console.error("Erreur reconnaissance:", event.error);
+            statusEl.textContent = "Erreur: " + event.error;
+            stopListening();
+        };
+
+        recognition.onend = () => {
+            if (isListening) {
+                recognition.start();
+            }
+        };
+    </script>
+</body>
+</html>
