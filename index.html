@@ -14,11 +14,11 @@
             margin: 0;
             background-color: #f0f2f5;
         }
-        .container {j
+        .container {
             text-align: center;
-            padding: 2rem;j
+            padding: 2rem;
             background: white;
-            border-radius: 1rem;j
+            border-radius: 1rem;
             box-shadow: 0 4px 6px rgba(0,0,0,0.1);
         }
         button {
@@ -53,7 +53,6 @@
 
     <script>
         // ================= CONFIGURATION =================
-        // Remplacez cette valeur par votre clé API OpenAI
         const OPENAI_API_KEY = "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";
         
         const SYSTEM_PROMPT = `
@@ -105,7 +104,36 @@
             statusEl.textContent = "Prêt à écouter";
         }
 
-        // Envoyer à l'API OpenAI
+        // Synthèse vocale avec streaming
+        function speakStream(textStream) {
+            const utteranceQueue = [];
+            let currentUtterance = null;
+
+            const processQueue = () => {
+                if (currentUtterance === null && utteranceQueue.length > 0) {
+                    currentUtterance = utteranceQueue.shift();
+                    const speech = new SpeechSynthesisUtterance(currentUtterance);
+                    speech.lang = 'fr-FR';
+                    speech.rate = 1.0;
+
+                    speech.onend = () => {
+                        currentUtterance = null;
+                        processQueue();
+                    };
+
+                    window.speechSynthesis.speak(speech);
+                }
+            };
+
+            const addTextToQueue = (text) => {
+                utteranceQueue.push(text);
+                processQueue();
+            };
+
+            return { addTextToQueue };
+        }
+
+        // Envoyer à l'API OpenAI avec streaming
         async function queryOpenAI(userInput) {
             try {
                 statusEl.textContent = "L'IA réfléchit...";
@@ -123,7 +151,8 @@
                             { role: "user", content: userInput }
                         ],
                         temperature: 0.7,
-                        max_tokens: 100
+                        max_tokens: 100,
+                        stream: true // Activer le streaming
                     })
                 });
 
@@ -131,27 +160,44 @@
                     throw new Error(`Erreur HTTP: ${response.status}`);
                 }
 
-                const data = await response.json();
-                return data.choices[0].message.content;
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let partialResponse = '';
+
+                const streamer = speakStream();
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const chunk = decoder.decode(value, { stream: true });
+                    const lines = chunk.split('\n').filter(line => line.trim().startsWith('data: '));
+
+                    for (const line of lines) {
+                        const data = line.replace('data: ', '');
+                        if (data === '[DONE]') continue;
+
+                        try {
+                            const json = JSON.parse(data);
+                            const content = json.choices[0]?.delta?.content || '';
+                            partialResponse += content;
+
+                            // Ajouter le texte au stream de synthèse vocale
+                            if (content) {
+                                streamer.addTextToQueue(content);
+                            }
+                        } catch (error) {
+                            console.error("Erreur parsing JSON:", error);
+                        }
+                    }
+                }
+
+                return partialResponse;
 
             } catch (error) {
                 console.error("Erreur OpenAI:", error);
                 return "Désolé, une erreur technique s'est produite. Veuillez réessayer.";
             }
-        }
-
-        // Synthèse vocale
-        function speak(text) {
-            const utterance = new SpeechSynthesisUtterance(text);
-            utterance.lang = 'fr-FR';
-            utterance.rate = 1.0;
-            window.speechSynthesis.speak(utterance);
-            
-            utterance.onend = () => {
-                if (isListening) {
-                    statusEl.textContent = "Écoute en cours... Parlez maintenant";
-                }
-            };
         }
 
         // Événements
@@ -161,10 +207,7 @@
             const userInput = event.results[event.results.length - 1][0].transcript;
             
             // Obtenir la réponse de l'IA
-            const aiResponse = await queryOpenAI(userInput);
-            
-            // Lire la réponse
-            speak(aiResponse);
+            await queryOpenAI(userInput);
         };
 
         recognition.onerror = (event) => {
