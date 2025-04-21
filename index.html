@@ -145,7 +145,7 @@
                         'Authorization': `Bearer ${OPENAI_API_KEY}`
                     },
                     body: JSON.stringify({
-                        model: "gpt-4-turbo",
+                        model: "gpt-3.5-turbo", // Modèle accessible
                         messages: [
                             { role: "system", content: SYSTEM_PROMPT },
                             { role: "user", content: userInput }
@@ -192,10 +192,12 @@
                     }
                 }
 
+                statusEl.textContent = "Réponse terminée.";
                 return partialResponse;
 
             } catch (error) {
                 console.error("Erreur OpenAI:", error);
+                statusEl.textContent = "Une erreur s'est produite. Veuillez réessayer.";
                 return "Désolé, une erreur technique s'est produite. Veuillez réessayer.";
             }
         }
@@ -205,7 +207,8 @@
 
         recognition.onresult = async (event) => {
             const userInput = event.results[event.results.length - 1][0].transcript;
-            
+            statusEl.textContent = "Vous avez dit : " + userInput;
+
             // Obtenir la réponse de l'IA
             await queryOpenAI(userInput);
         };
